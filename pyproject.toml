@@ -1,0 +1,22 @@
+[project]
+name = "valentine"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "SrijanSriv211", email = "QCoreNest@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "colorama>=0.4.6",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pyarrow>=25.0.1",
+    "regex>=2026.9.3",
+    "rich>=15.0.0",
+    "torch>=2.13.0",
+]
+
+[project.scripts]
+valentine = "valentine:main"
