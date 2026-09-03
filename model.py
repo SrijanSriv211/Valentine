@@ -53,8 +53,6 @@ class HydraLatentAttention(nn.Module):
 		self.qkv_u = SignedLinear(d_in, 3*n_qkv) # (embd, 3*qkv); transpose to (3*qkv, embd)
 		self.gate = SignedLinear(3*self.n_embd, d_in//2) # (qkv//2, in)
 		self.out = SignedLinear(d_in, 2*d_out) # (qkv, 2*out); view to (2*qkv, out) transpose to (out, 2*qkv)
-		self.t1 = SignedLinear(config.n_embd * config.n_head, config.n_embd)
-		self.t2 = SignedLinear(2*config.d_model, config.n_embd)
 
 	# https://arxiv.org/abs/2405.04434
 	# deepseek mla implementation without decoupled rope,
@@ -113,8 +111,6 @@ class HydraLatentAttention(nn.Module):
 		w_qkv_u = self.qkv_u(w_qkv_l).T.contiguous()
 		w_gate = self.gate(w_qkv_u.view(-1, 3*self.n_embd)).view(-1, self.d_in)
 		w_out = self.out(w_gate).view(-1, self.d_out).T.contiguous()
-		w = self.t1(w_out).T.contiguous()
-		w = self.t2(w)
 
 		# calculate query, key, values for all heads in batch and move head forward to be the batch dim
 		c_q, c_kv = F.linear(norm(x), w_qkv_l).chunk(2, dim=-1) # `c_kv` will be stored in the KV cache
@@ -131,7 +127,7 @@ class HydraLatentAttention(nn.Module):
 
 		# interleave heads of ela & aft
 		y = torch.stack([ela, aft], dim=3).flatten(2, 3).view(B, T, -1) # (B, T, 2*nh, hs) -> (B, T, 2K)
-		return F.linear(norm(y), w_out), w
+		return F.linear(norm(y), w_out), w_out
 
 class Silia(nn.Module):
 	def __init__(self, config: Config):
@@ -139,10 +135,14 @@ class Silia(nn.Module):
 		# two-thirds trick for hidden dimension to keep compute constant
 		self.a1 = HydraLatentAttention(config, config.n_embd, 2*config.d_model)
 		self.a2 = HydraLatentAttention(config, config.d_model, config.n_embd)
+		self.t1 = SignedLinear(config.n_embd * config.n_head, config.n_embd)
+		self.t2 = SignedLinear(2*config.d_model, config.n_embd)
 		self.w = nn.Linear(config.n_embd, config.n_embd, bias=False).weight
 
 	def forward(self, x, cos_sin):
 		y, w = self.a1(x, self.w, cos_sin)
+		w = self.t1(w).T.contiguous()
+		w = self.t2(w)
 		u, v = y.chunk(2, dim=-1)
 		y = u * F.silu(v)
 		y, _ = self.a2(y, w, cos_sin)
