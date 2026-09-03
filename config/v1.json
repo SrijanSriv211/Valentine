@@ -29,8 +29,8 @@
 	"compile": true,
 	"seed": 18,
 
-	"batch_size": 32,
-	"gradient_accumulation_steps": 2,
+	"batch_size": 64,
+	"gradient_accumulation_steps": 1,
 
 	"eval_iters": 200,
 	"max_iters": 50000,
