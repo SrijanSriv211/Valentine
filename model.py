@@ -142,7 +142,7 @@ class Silia(nn.Module):
 		self.w = nn.Linear(config.n_embd, config.n_embd, bias=False).weight
 
 	def forward(self, x, cos_sin):
-		y, w = self.a1(x, w, cos_sin)
+		y, w = self.a1(x, self.w, cos_sin)
 		u, v = y.chunk(2, dim=-1)
 		y = u * F.silu(v)
 		y, _ = self.a2(y, w, cos_sin)
