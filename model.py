@@ -1,6 +1,6 @@
 from torch.nn import functional as F
 from dataclasses import dataclass
-import torch.nn as nn, torch, math
+import torch.nn as nn, torch
 
 @dataclass
 class Config:
@@ -49,7 +49,7 @@ class HydraLatentAttention(nn.Module):
 		n_qkv = self.n_embd * self.n_head
 
 		# (embd, embd)
-		self.qkv_l = SignedLinear(self.n_embd, d_in) # (embd, in)
+		self.qkv_l = SignedLinear(config.d_model, d_in) # (embd, in)
 		self.qkv_u = SignedLinear(d_in, 3*n_qkv) # (embd, 3*qkv); transpose to (3*qkv, embd)
 		self.gate = SignedLinear(3*self.n_embd, d_in//2) # (qkv//2, in)
 		self.out = SignedLinear(d_in, 2*d_out) # (qkv, 2*out); view to (2*qkv, out) transpose to (out, 2*qkv)
@@ -136,8 +136,8 @@ class Silia(nn.Module):
 		self.a1 = HydraLatentAttention(config, config.n_embd, 2*config.d_model)
 		self.a2 = HydraLatentAttention(config, config.d_model, config.n_embd)
 		self.t1 = SignedLinear(config.n_embd * config.n_head, config.n_embd)
-		self.t2 = SignedLinear(2*config.d_model, config.n_embd)
-		self.w = nn.Linear(config.n_embd, config.n_embd, bias=False).weight
+		self.t2 = SignedLinear(2*config.d_model, config.d_model)
+		self.w = nn.Linear(config.d_model, config.n_embd, bias=False).weight
 
 	def forward(self, x, cos_sin):
 		y, w = self.a1(x, self.w, cos_sin)
