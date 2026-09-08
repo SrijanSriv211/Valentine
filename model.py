@@ -10,6 +10,7 @@ class Config:
 	n_head: int = 8
 	n_embd: int = 64
 	d_model: int = 256
+	d_weight: int = 10
 
 def norm(x):
 	return F.rms_norm(x, (x.size(-1),))
@@ -22,18 +23,19 @@ def apply_rotary_emb(x, cos, sin):
 	y2 = x1 * (-sin) + x2 * cos
 	return torch.cat([y1, y2], 3)
 
-# unlearned ternary weights
-# will be used to generate HLA weights from input
-class SignedLinear(nn.Module):
+# unlearned linear
+# will be used to generate HLA weights
+class UnlLinear(nn.Module):
 	def __init__(self, inpf, outf):
 		super().__init__()
-
-		w = torch.randint(-1, 2, (outf, inpf), dtype=torch.float32)
+		a = torch.randn(max(inpf, outf), min(inpf, outf))
+		q, _ = torch.linalg.qr(a) # orthonormal columns
+		w = q if outf >= inpf else q.T # shape (outf, inpf), orthonormal rows or cols
+		w = w[:outf, :inpf]
 		self.register_buffer("w", w)
 
 	def forward(self, x):
-		y = F.linear(x, self.w)
-		return norm(y)
+		return F.linear(x, self.w)
 
 # https://arxiv.org/abs/2606.20097
 # inspired from Qwen Team's HydraHead,
@@ -42,17 +44,24 @@ class HydraLatentAttention(nn.Module):
 	def __init__(self, config: Config, d_in, d_out):
 		super().__init__()
 		assert config.n_head % 2 == 0
-		self.d_in = d_in
-		self.d_out = d_out
 		self.n_head = config.n_head
 		self.n_embd = config.n_embd
 		n_qkv = self.n_embd * self.n_head
+		d_weight = self.n_embd * config.d_weight
 
 		# (embd, embd)
-		self.qkv_l = SignedLinear(config.d_model, d_in) # (embd, in)
-		self.qkv_u = SignedLinear(d_in, 3*n_qkv) # (embd, 3*qkv); transpose to (3*qkv, embd)
-		self.gate = SignedLinear(3*self.n_embd, d_in//2) # (qkv//2, in)
-		self.out = SignedLinear(d_in, 2*d_out) # (qkv, 2*out); view to (2*qkv, out) transpose to (out, 2*qkv)
+		self.w = nn.Linear(d_weight, n_qkv, bias=False).weight
+		self.qkv_l_0 = UnlLinear(d_weight, self.n_embd)
+		self.qkv_l_1 = UnlLinear(n_qkv, d_in) # (embd, in)
+
+		self.qkv_u_0 = UnlLinear(d_weight, 3*n_qkv)
+		self.qkv_u_1 = UnlLinear(n_qkv, self.n_embd) # (3*qkv, embd)
+
+		self.gate_0 = UnlLinear(d_weight, n_qkv//2)
+		self.gate_1 = UnlLinear(n_qkv, d_in) # (qkv//2, in)
+
+		self.out_0 = UnlLinear(d_weight, d_out)
+		self.out_1 = UnlLinear(n_qkv, n_qkv) # (out, qkv)
 
 	# https://arxiv.org/abs/2405.04434
 	# deepseek mla implementation without decoupled rope,
@@ -103,14 +112,25 @@ class HydraLatentAttention(nn.Module):
 		y = torch.sigmoid(q) * y
 		return y.view(B, T, nh, hs)
 
-	def forward(self, x, w, cos_sin):
-		B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+	# generate the weights
+	def get_weights(self):
+		w_qkv_l_0 = self.qkv_l_0(self.w)
+		w_qkv_l_1 = self.qkv_l_1(w_qkv_l_0.T)
 
-		# generate the weights
-		w_qkv_l = self.qkv_l(w)
-		w_qkv_u = self.qkv_u(w_qkv_l).T.contiguous()
-		w_gate = self.gate(w_qkv_u.view(-1, 3*self.n_embd)).view(-1, self.d_in)
-		w_out = self.out(w_gate).view(-1, self.d_out).T.contiguous()
+		w_qkv_u_0 = self.qkv_u_0(self.w)
+		w_qkv_u_1 = self.qkv_u_1(w_qkv_u_0.T)
+
+		w_gate_0 = self.gate_0(self.w)
+		w_gate_1 = self.gate_1(w_gate_0.T)
+
+		w_out_0 = self.out_0(self.w)
+		w_out_1 = self.out_1(w_out_0.T)
+
+		return w_qkv_l_1, w_qkv_u_1, w_gate_1, w_out_1
+
+	def forward(self, x, cos_sin):
+		B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
+		w_qkv_l, w_qkv_u, w_gate, w_out = self.get_weights()
 
 		# calculate query, key, values for all heads in batch and move head forward to be the batch dim
 		c_q, c_kv = F.linear(norm(x), w_qkv_l).chunk(2, dim=-1) # `c_kv` will be stored in the KV cache
@@ -127,7 +147,7 @@ class HydraLatentAttention(nn.Module):
 
 		# interleave heads of ela & aft
 		y = torch.stack([ela, aft], dim=3).flatten(2, 3).view(B, T, -1) # (B, T, 2*nh, hs) -> (B, T, 2K)
-		return F.linear(norm(y), w_out), w_out
+		return F.linear(norm(y), w_out)
 
 class Silia(nn.Module):
 	def __init__(self, config: Config):
@@ -135,18 +155,12 @@ class Silia(nn.Module):
 		# two-thirds trick for hidden dimension to keep compute constant
 		self.a1 = HydraLatentAttention(config, config.n_embd, 2*config.d_model)
 		self.a2 = HydraLatentAttention(config, config.d_model, config.n_embd)
-		self.t1 = SignedLinear(config.n_embd * config.n_head, config.n_embd)
-		self.t2 = SignedLinear(2*config.d_model, config.d_model)
-		self.w = nn.Linear(config.d_model, config.n_embd, bias=False).weight
 
 	def forward(self, x, cos_sin):
-		y, w = self.a1(x, self.w, cos_sin)
-		w = self.t1(w).T.contiguous()
-		w = self.t2(w)
+		y = self.a1(x, cos_sin)
 		u, v = y.chunk(2, dim=-1)
 		y = u * F.silu(v)
-		y, _ = self.a2(y, w, cos_sin)
-		return x + y
+		return x + self.a2(y, cos_sin)
 
 class Valentine(nn.Module):
 	def __init__(self, config: Config):

@@ -15,14 +15,15 @@
 		"n_layer": 2,
 		"n_head": 4,
 		"n_embd": 64,
-		"d_model": 170
+		"d_model": 170,
+		"d_weight": 10
 	},
 	"optimizer_hyperparams": {
 		"eps": 1e-8,
 		"beta1": 0.9,
 		"beta2": 0.99,
 		"momentum": 0.95,
-		"weight_decay": 0
+		"weight_decay": 1e-3
 	},
 	"encoder_path": "bin/o8k.bin",
 	"init_from": "scratch",
@@ -33,14 +34,14 @@
 	"gradient_accumulation_steps": 1,
 
 	"eval_iters": 200,
-	"max_iters": 50000,
+	"max_iters": 20000,
 	"log_interval": 200,
 	"eval_interval": 2000,
 
 	"decay_lr": true,
-	"warmup_iters": 2500,
+	"warmup_iters": 1000,
 	"cooldown_frac": 0.5,
-	"learning_rate": 4e-3,
-	"lr_decay_iters": 50000,
-	"min_learning_rate": 4e-4
+	"learning_rate": 3e-3,
+	"lr_decay_iters": 20000,
+	"min_learning_rate": 3e-4
 }

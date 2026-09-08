@@ -144,7 +144,8 @@ CONFIG = json.loads(open(sys.argv[1], "r", encoding="utf-8").read()) if len(sys.
 		"n_layer": 4,
 		"n_head": 16,
 		"n_embd": 128,
-		"d_model": 128
+		"d_model": 128,
+		"d_weight": 64
 	},
 	"optimizer_hyperparams": {
 		"eps": 1e-10,
