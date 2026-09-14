@@ -47,21 +47,20 @@ class HydraLatentAttention(nn.Module):
 		self.n_head = config.n_head
 		self.n_embd = config.n_embd
 		n_qkv = self.n_embd * self.n_head
-		d_weight = self.n_embd * config.d_weight
 
 		# (embd, embd)
-		self.w = nn.Linear(d_weight, n_qkv, bias=False).weight
-		self.qkv_l_0 = UnlLinear(d_weight, self.n_embd)
-		self.qkv_l_1 = UnlLinear(n_qkv, d_in) # (embd, in)
+		self.w = nn.Linear(config.d_weight, config.d_weight, bias=False).weight
+		self.qkv_l_0 = UnlLinear(config.d_weight, self.n_embd)
+		self.qkv_l_1 = UnlLinear(config.d_weight, d_in) # (embd, in)
 
-		self.qkv_u_0 = UnlLinear(d_weight, 3*n_qkv)
-		self.qkv_u_1 = UnlLinear(n_qkv, self.n_embd) # (3*qkv, embd)
+		self.qkv_u_0 = UnlLinear(config.d_weight, 3*n_qkv)
+		self.qkv_u_1 = UnlLinear(config.d_weight, self.n_embd) # (3*qkv, embd)
 
-		self.gate_0 = UnlLinear(d_weight, n_qkv//2)
-		self.gate_1 = UnlLinear(n_qkv, d_in) # (qkv//2, in)
+		self.gate_0 = UnlLinear(config.d_weight, n_qkv//2)
+		self.gate_1 = UnlLinear(config.d_weight, d_in) # (qkv//2, in)
 
-		self.out_0 = UnlLinear(d_weight, d_out)
-		self.out_1 = UnlLinear(n_qkv, n_qkv) # (out, qkv)
+		self.out_0 = UnlLinear(config.d_weight, d_out)
+		self.out_1 = UnlLinear(config.d_weight, n_qkv) # (out, qkv)
 
 	# https://arxiv.org/abs/2405.04434
 	# deepseek mla implementation without decoupled rope,
